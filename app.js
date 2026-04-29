@@ -90,16 +90,11 @@ app.post('/wxmsg', async (req, res) => {
 // ===== 发送客服文本消息 =====
 async function sendTextMsg (appid, openid, content) {
   try {
-    // 云托管内部必须用 http:// + CLOUD_ACCESS_TOKEN，不能用 https://
+    // 云托管：http:// + access_token 作为查询参数，平台自动替换 CLOUD_ACCESS_TOKEN
     const res = await axios.post(
-      'http://api.weixin.qq.com/cgi-bin/message/custom/send',
+      'http://api.weixin.qq.com/cgi-bin/message/custom/send?access_token=CLOUD_ACCESS_TOKEN',
       { touser: openid, msgtype: 'text', text: { content } },
-      {
-        headers: {
-          'access_token': 'CLOUD_ACCESS_TOKEN'   // 云托管平台自动替换为真实 token
-        },
-        timeout: 8000
-      }
+      { timeout: 8000 }
     )
     console.log('客服消息发送结果:', res.data)
   } catch (err) {

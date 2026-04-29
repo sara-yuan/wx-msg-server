@@ -2,6 +2,10 @@ const express = require('express')
 const crypto  = require('crypto')
 const xml2js  = require('xml2js')
 const axios   = require('axios')
+const https   = require('https')
+
+// 云托管容器内部 HTTPS 走代理，需关闭证书验证
+const httpsAgent = new https.Agent({ rejectUnauthorized: false })
 
 const app  = express()
 const PORT = process.env.PORT || 80
@@ -98,7 +102,8 @@ async function getToken () {
   if (!appid || !secret) throw new Error('缺少环境变量 WX_APPID / WX_APPSECRET')
   const r = await axios.get('https://api.weixin.qq.com/cgi-bin/token', {
     params: { grant_type: 'client_credential', appid, secret },
-    timeout: 8000
+    timeout: 8000,
+    httpsAgent
   })
   if (!r.data.access_token) throw new Error('获取token失败: ' + JSON.stringify(r.data))
   _token        = r.data.access_token
@@ -114,7 +119,7 @@ async function sendTextMsg (appid, openid, content) {
     const res = await axios.post(
       `https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token=${token}`,
       { touser: openid, msgtype: 'text', text: { content } },
-      { timeout: 8000 }
+      { timeout: 8000, httpsAgent }
     )
     console.log('客服消息发送结果:', res.data)
   } catch (err) {

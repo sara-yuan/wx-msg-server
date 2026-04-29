@@ -87,12 +87,32 @@ app.post('/wxmsg', async (req, res) => {
   }
 })
 
+// ===== access_token 缓存（2小时有效）=====
+let _token = ''
+let _tokenExpires = 0
+
+async function getToken () {
+  if (_token && Date.now() < _tokenExpires) return _token
+  const appid  = process.env.WX_APPID
+  const secret = process.env.WX_APPSECRET
+  if (!appid || !secret) throw new Error('缺少环境变量 WX_APPID / WX_APPSECRET')
+  const r = await axios.get('https://api.weixin.qq.com/cgi-bin/token', {
+    params: { grant_type: 'client_credential', appid, secret },
+    timeout: 8000
+  })
+  if (!r.data.access_token) throw new Error('获取token失败: ' + JSON.stringify(r.data))
+  _token        = r.data.access_token
+  _tokenExpires = Date.now() + (r.data.expires_in - 120) * 1000
+  console.log('access_token 已刷新')
+  return _token
+}
+
 // ===== 发送客服文本消息 =====
 async function sendTextMsg (appid, openid, content) {
   try {
-    // 云托管：http:// + access_token 作为查询参数，平台自动替换 CLOUD_ACCESS_TOKEN
+    const token = await getToken()
     const res = await axios.post(
-      'http://api.weixin.qq.com/cgi-bin/message/custom/send?access_token=CLOUD_ACCESS_TOKEN',
+      `https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token=${token}`,
       { touser: openid, msgtype: 'text', text: { content } },
       { timeout: 8000 }
     )

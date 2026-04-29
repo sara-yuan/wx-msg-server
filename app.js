@@ -1,9 +1,9 @@
 const express = require('express')
-const crypto = require('crypto')
-const xml2js = require('xml2js')
-const axios = require('axios')
+const crypto  = require('crypto')
+const xml2js  = require('xml2js')
+const axios   = require('axios')
 
-const app = express()
+const app  = express()
 const PORT = process.env.PORT || 80
 const TOKEN = 'wechatrm'
 
@@ -15,7 +15,7 @@ app.use(express.text({ type: '*/*' }))
 // ===== 微信服务器验证（GET）=====
 app.get('/wxmsg', (req, res) => {
   const { signature, timestamp, nonce, echostr } = req.query
-  const arr = [TOKEN, timestamp, nonce].sort()
+  const arr  = [TOKEN, timestamp, nonce].sort()
   const hash = crypto.createHash('sha1').update(arr.join('')).digest('hex')
   if (hash === signature) {
     console.log('微信验证通过')
@@ -36,31 +36,48 @@ app.post('/wxmsg', async (req, res) => {
 
   try {
     const parsed = await xml2js.parseStringPromise(body, { explicitArray: false })
-    const msg = parsed.xml
+    const msg    = parsed.xml
     console.log('解析后消息:', JSON.stringify(msg))
 
-    const openid = msg.FromUserName
-    const appid = msg.ToUserName
+    const openid  = msg.FromUserName
+    const appid   = msg.ToUserName
     const msgType = msg.MsgType
+
+    // 用户进入客服会话事件
+    if (msgType === 'event' && msg.Event === 'user_enter_tempsession') {
+      await sendTextMsg(appid, openid, '欢迎使用寄梦去水印客服 🎬\n\n请直接将视频号视频转发到此对话，系统自动提取无水印链接。')
+      return
+    }
 
     // 视频号视频转发消息
     if (msgType === 'miniprogrampage' || msg.FinderFeed) {
       const feed = msg.FinderFeed || {}
 
-      // 尝试直接从消息体拿 cdnVideoUrl
-      const videoUrl = feed.cdnVideoUrl || feed.CdnVideoUrl || ''
-      const feedId = feed.feedId || feed.FeedId || ''
+      // 穷举所有可能的字段名（大小写变体）
+      const videoUrl =
+        feed.cdnVideoUrl   || feed.CdnVideoUrl   ||
+        feed.cdn_video_url || feed.videoUrl       ||
+        feed.VideoUrl      || feed.video_url      || ''
+
+      const feedId   = feed.feedId   || feed.FeedId   || ''
       const username = feed.username || feed.Username || ''
 
       console.log('feedId:', feedId, 'cdnVideoUrl:', videoUrl)
+      // 打印完整 FinderFeed 便于分析未知字段
+      console.log('FinderFeed 完整字段:', JSON.stringify(feed, null, 2))
 
       if (videoUrl) {
-        await sendTextMsg(appid, openid, '✅ 解析成功！复制下方链接在浏览器打开保存：\n\n' + videoUrl)
+        await sendTextMsg(appid, openid,
+          '✅ 视频号去水印成功！\n\n复制下方链接，在浏览器打开即可保存：\n\n' + videoUrl)
       } else {
-        await sendTextMsg(appid, openid, '⚠️ 暂时无法自动解析此视频，请在小程序内手动粘贴链接。\nfeedId: ' + feedId)
+        await sendTextMsg(appid, openid,
+          '⚠️ 暂未能提取直链，请将视频分享链接粘贴到小程序内去水印。\n\n（feedId: ' + feedId + '）')
       }
+
     } else if (msgType === 'text') {
-      await sendTextMsg(appid, openid, '请打开小程序，粘贴视频链接进行去水印。支持即梦/豆包/抖音/小红书/快手。')
+      await sendTextMsg(appid, openid,
+        '请直接将视频号视频转发到此对话，系统自动提取无水印链接 🎬\n\n其他平台（抖音/小红书/快手等）请打开小程序粘贴链接。')
+
     } else {
       console.log('未处理消息类型:', msgType)
     }
@@ -71,21 +88,17 @@ app.post('/wxmsg', async (req, res) => {
 })
 
 // ===== 发送客服文本消息 =====
-async function sendTextMsg(appid, openid, content) {
+async function sendTextMsg (appid, openid, content) {
   try {
-    // 用微信云托管免鉴权调用接口
+    // 云托管内部必须用 http:// + CLOUD_ACCESS_TOKEN，不能用 https://
     const res = await axios.post(
-      'https://api.weixin.qq.com/cgi-bin/message/custom/send',
-      {
-        touser: openid,
-        msgtype: 'text',
-        text: { content }
-      },
+      'http://api.weixin.qq.com/cgi-bin/message/custom/send',
+      { touser: openid, msgtype: 'text', text: { content } },
       {
         headers: {
-          'X-WX-SERVICE': process.env.X_WX_SERVICE || '',
-          'access_token': 'CLOUD_ACCESS_TOKEN'  // 云托管环境自动注入，无需手动获取
-        }
+          'access_token': 'CLOUD_ACCESS_TOKEN'   // 云托管平台自动替换为真实 token
+        },
+        timeout: 8000
       }
     )
     console.log('客服消息发送结果:', res.data)
@@ -95,7 +108,7 @@ async function sendTextMsg(appid, openid, content) {
 }
 
 // 健康检查
-app.get('/', (req, res) => res.send('OK'))
+app.get('/', (_req, res) => res.send('OK'))
 
 app.listen(PORT, () => {
   console.log('服务启动，端口:', PORT)
